@@ -1,3 +1,5 @@
+#Comando pip para instalar as bibliotecas necessárias: pip install PyQt5 PyMuPDF
+
 from PyQt5 import QtCore, QtGui, QtWidgets
 import sys
 import os
