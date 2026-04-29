@@ -54,46 +54,42 @@ class TextEditDialog(tk.Toplevel):
 
 
 # ======================================================================
-# Objeto caixa de texto no canvas (editor)
+# Objeto caixa de texto no canvas (editor visual)
 # ======================================================================
 class TextBox:
     def __init__(self, canvas, x1, y1, x2, y2, text="", fontname="helv", fontsize=12):
         self.canvas = canvas
-        self.rect = [x1, y1, x2, y2]           # coordenadas no canvas
+        self.rect = [x1, y1, x2, y2]
         self.text = text
         self.fontname = fontname
         self.fontsize = fontsize
-        self.items = []                         # ids dos objetos no canvas
-        self.handles = {}                       # ids das alças
+        self.items = []
+        self.handles = {}
         self.draw()
 
     def draw(self):
-        # Remove itens antigos
         for iid in self.items:
             self.canvas.delete(iid)
         self.items.clear()
         self.handles.clear()
 
-        # Retângulo principal
         r = self.canvas.create_rectangle(
             self.rect[0], self.rect[1], self.rect[2], self.rect[3],
             outline='#0078D7', fill='', width=2, stipple='gray25'
         )
         self.items.append(r)
 
-        # Texto centralizado
         txt_id = self.canvas.create_text(
-            (self.rect[0] + self.rect[2]) / 2,
-            (self.rect[1] + self.rect[3]) / 2,
+            self.rect[0] + 5,  # Alinhado mais à esquerda para prever como ficará
+            self.rect[1] + 5,
             text=self.text,
             font=('Helvetica', self.fontsize),
-            anchor='center',
-            width=self.rect[2] - self.rect[0] - 6
+            anchor='nw',
+            width=self.rect[2] - self.rect[0] - 10
         )
         self.items.append(txt_id)
 
-        # Alças (pequenos quadrados)
-        hw = 4  # metade do tamanho
+        hw = 4
         positions = {
             'nw': (self.rect[0], self.rect[1]),
             'n':  ((self.rect[0] + self.rect[2]) / 2, self.rect[1]),
@@ -112,7 +108,6 @@ class TextBox:
             self.handles[key] = hid
             self.items.append(hid)
 
-        # Agrupar tags
         for iid in self.items:
             self.canvas.itemconfig(iid, tags=('textbox',))
 
@@ -154,18 +149,15 @@ class PDFPageEditor(tk.Toplevel):
         self.page_num = page_num
         self.on_save_callback = on_save_callback
 
-        # Abrir documento e página
         self.doc = fitz.open(pdf_path)
         self.page = self.doc.load_page(page_num)
-        self.scale = 150 / 72.0            # DPI da visualização
+        self.scale = 150 / 72.0
 
-        # Imagem da página
         mat = fitz.Matrix(self.scale, self.scale)
         pix = self.page.get_pixmap(matrix=mat)
         self.img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
         self.photo = ImageTk.PhotoImage(self.img)
 
-        # Barra de ferramentas
         toolbar = ttk.Frame(self)
         toolbar.pack(fill=tk.X)
         ttk.Button(toolbar, text="Adicionar Caixa de Texto", command=self.start_draw).pack(side=tk.LEFT, padx=5, pady=5)
@@ -173,7 +165,6 @@ class PDFPageEditor(tk.Toplevel):
         ttk.Button(toolbar, text="Salvar como...", command=lambda: self.save(overwrite=False)).pack(side=tk.RIGHT, padx=5)
         ttk.Button(toolbar, text="Cancelar", command=self.destroy).pack(side=tk.RIGHT, padx=5)
 
-        # Canvas com scrollbars
         canvas_frame = ttk.Frame(self)
         canvas_frame.pack(fill=tk.BOTH, expand=True)
         self.canvas = tk.Canvas(canvas_frame, bg='#E0E0E0', cursor="cross")
@@ -187,15 +178,13 @@ class PDFPageEditor(tk.Toplevel):
         self.canvas.create_image(0, 0, anchor='nw', image=self.photo)
         self.canvas.config(scrollregion=(0, 0, self.img.width, self.img.height))
 
-        # Estado interno
-        self.textboxes = []            # lista de TextBox
-        self.mode = 'idle'            # 'idle' | 'drawing' | 'dragging' | 'resizing'
+        self.textboxes = []
+        self.mode = 'idle'
         self.drawing_start = None
         self.draw_rect_id = None
         self.drag_data = None
         self.resize_data = None
 
-        # Eventos do mouse
         self.canvas.bind("<ButtonPress-1>", self.on_press)
         self.canvas.bind("<B1-Motion>", self.on_motion)
         self.canvas.bind("<ButtonRelease-1>", self.on_release)
@@ -215,7 +204,6 @@ class PDFPageEditor(tk.Toplevel):
                 x, y, x, y, outline='red', dash=(3, 3)
             )
         elif self.mode == 'idle':
-            # Verifica se clicou numa alça
             for box in self.textboxes:
                 handle = box.get_handle(x, y)
                 if handle:
@@ -228,7 +216,6 @@ class PDFPageEditor(tk.Toplevel):
                         'orig_rect': box.rect.copy()
                     }
                     return
-            # Verifica se clicou dentro de uma caixa
             for box in self.textboxes:
                 if box.contains(x, y):
                     self.mode = 'dragging'
@@ -285,7 +272,6 @@ class PDFPageEditor(tk.Toplevel):
             elif handle == 'e':
                 new_rect[2] = max(x, orig[0] + 20)
 
-            # Tamanho mínimo
             if new_rect[2] - new_rect[0] < 20:
                 if handle in ('w', 'nw', 'sw'):
                     new_rect[0] = new_rect[2] - 20
@@ -350,32 +336,51 @@ class PDFPageEditor(tk.Toplevel):
                     box.update_text(text, fontname, fontsize)
                 return
 
+    # ====================================================================
+    # FUNÇÃO DE SALVAR CORRIGIDA
+    # ====================================================================
     def save(self, overwrite=True):
-        # Aplica as caixas de texto na página real do PDF
+        # Pegamos os limites reais da página para compensar margens (CropBox)
+        page_rect = self.page.rect
+
         for box in self.textboxes:
-            x0 = box.rect[0] / self.scale
-            y0 = box.rect[1] / self.scale
-            x1 = box.rect[2] / self.scale
-            y1 = box.rect[3] / self.scale
+            if not box.text.strip():
+                continue
+
+            # Mapeia as coordenadas do Canvas para a resolução nativa do PDF
+            # Somando x0 e y0 da página para garantir a posição exata
+            x0 = (box.rect[0] / self.scale) + page_rect.x0
+            y0 = (box.rect[1] / self.scale) + page_rect.y0
+            x1 = (box.rect[2] / self.scale) + page_rect.x0
+            # Expande fortemente a borda inferior (y1) para garantir que
+            # o texto nunca seja ocultado pelo PyMuPDF por "falta de espaço"
+            y1 = page_rect.y1
+
             rect = fitz.Rect(x0, y0, x1, y1)
 
             font_map = {
-                'helv': 'Helvetica',
-                'times': 'Times-Roman',
-                'cour': 'Courier',
-                'symb': 'Symbol',
-                'ding': 'ZapfDingbats'
+                'helv': 'helv',
+                'times': 'tiro',
+                'cour': 'cour',
+                'symb': 'symb',
+                'ding': 'zadb'
             }
-            pdf_font = font_map.get(box.fontname, 'Helvetica')
+            pdf_font = font_map.get(box.fontname, 'helv')
 
-            self.page.insert_textbox(rect, box.text,
-                                     fontname=pdf_font,
-                                     fontsize=box.fontsize,
-                                     align=0)
+            self.page.insert_font(fontname=pdf_font)
+
+            # Inserção de texto com cor forçada (Preto)
+            self.page.insert_textbox(
+                rect,
+                box.text,
+                fontname=pdf_font,
+                fontsize=box.fontsize,
+                color=(0, 0, 0), # Evita que a cor padrão fique transparente/branca
+                align=0
+            )
 
         try:
             if overwrite:
-                # Preserva criptografia existente
                 self.doc.save(self.pdf_path, incremental=True,
                               encryption=fitz.PDF_ENCRYPT_KEEP)
                 msg = "PDF original atualizado com sucesso."
@@ -387,7 +392,8 @@ class PDFPageEditor(tk.Toplevel):
                 )
                 if not new_path:
                     return
-                self.doc.save(new_path)
+                # Salva um novo arquivo desvinculado
+                self.doc.save(new_path, garbage=3, deflate=True)
                 msg = f"PDF salvo em:\n{new_path}"
 
             self.doc.close()
@@ -408,22 +414,20 @@ class PDFPageEditor(tk.Toplevel):
 
 
 # ======================================================================
-# Aplicação principal (seleção múltipla com Shift/Ctrl e borda vermelha)
+# Aplicação principal
 # ======================================================================
 class PDFManager:
     def __init__(self, root):
         self.root = root
-        self.root.title("Gerenciador de PDFs – Unir, Dividir e Editar")
+        self.root.title("Gerador de PDF")
         self.root.geometry("1000x700")
         self.root.minsize(800, 600)
 
         self.pdf_files = []
-        self.thumb_widgets = []          # (frame, path, page_num)
+        self.thumb_widgets = []
         self.thumbnail_size = (180, 250)
-
-        # Controle de seleção múltipla
-        self.selected_pages = set()      # conjunto de (path, page_num)
-        self.last_clicked_index = None   # índice em thumb_widgets (âncora para Shift)
+        self.selected_pages = set()
+        self.last_clicked_index = None
 
         self.setup_ui()
 
@@ -431,7 +435,6 @@ class PDFManager:
         main_panel = ttk.PanedWindow(self.root, orient=tk.HORIZONTAL)
         main_panel.pack(fill=tk.BOTH, expand=True)
 
-        # Painel central (miniaturas)
         center_frame = ttk.Frame(main_panel)
         main_panel.add(center_frame, weight=3)
 
@@ -451,7 +454,6 @@ class PDFManager:
         self.canvas.create_window((0, 0), window=self.thumb_frame, anchor='nw')
         self.thumb_frame.bind("<Configure>", self.on_frame_configure)
 
-        # Painel direito (lista e controles)
         right_frame = ttk.Frame(main_panel, width=250)
         main_panel.add(right_frame, weight=1)
 
@@ -488,7 +490,6 @@ class PDFManager:
         self.status.config(text=msg)
         self.root.update_idletasks()
 
-    # ----- Gerenciamento da lista de PDFs -----
     def add_pdf(self):
         files = filedialog.askopenfilenames(
             title="Selecionar PDF(s)",
@@ -514,7 +515,6 @@ class PDFManager:
     def move_up(self):
         selected = self.pdf_listbox.curselection()
         if not selected or len(selected) > 1:
-            messagebox.showinfo("Aviso", "Selecione exatamente um PDF para mover.")
             return
         idx = selected[0]
         if idx == 0:
@@ -529,7 +529,6 @@ class PDFManager:
     def move_down(self):
         selected = self.pdf_listbox.curselection()
         if not selected or len(selected) > 1:
-            messagebox.showinfo("Aviso", "Selecione exatamente um PDF para mover.")
             return
         idx = selected[0]
         if idx == len(self.pdf_files) - 1:
@@ -546,7 +545,6 @@ class PDFManager:
         self.pdf_listbox.delete(0, tk.END)
         self.refresh_thumbnails()
 
-    # ----- Miniaturas e seleção -----
     def refresh_thumbnails(self):
         self.update_status("Gerando miniaturas...")
         self.root.config(cursor="watch")
@@ -568,7 +566,6 @@ class PDFManager:
             try:
                 doc = fitz.open(path)
             except Exception as e:
-                messagebox.showerror("Erro", f"Não foi possível abrir {os.path.basename(path)}:\n{e}")
                 continue
 
             for page_num in range(len(doc)):
@@ -578,7 +575,6 @@ class PDFManager:
                 img.thumbnail(self.thumbnail_size, Image.LANCZOS)
                 photo = ImageTk.PhotoImage(img)
 
-                # Frame com borda configurável (tk.Frame)
                 frame = tk.Frame(self.thumb_frame, highlightthickness=2,
                                  highlightbackground='#f0f0f0', relief=tk.RIDGE, borderwidth=2)
                 frame.grid(row=row, column=col, padx=5, pady=5, sticky='nw')
@@ -590,15 +586,12 @@ class PDFManager:
                 info = f"Pág. {page_num + 1} | {os.path.basename(path)}"
                 ttk.Label(frame, text=info, font=('Arial', 8)).pack()
 
-                # Armazena referência para manipulação posterior
                 idx = len(self.thumb_widgets)
                 self.thumb_widgets.append((frame, path, page_num))
 
-                # Bind de clique simples (seleção)
                 frame.bind("<Button-1>", lambda e, i=idx: self.on_thumb_click(e, i))
                 lbl.bind("<Button-1>", lambda e, i=idx: self.on_thumb_click(e, i))
 
-                # Duplo clique abre o editor da página
                 lbl.bind("<Double-Button-1>", lambda e, p=path, pn=page_num: self.edit_page(p, pn))
                 frame.bind("<Double-Button-1>", lambda e, p=path, pn=page_num: self.edit_page(p, pn))
 
@@ -612,34 +605,28 @@ class PDFManager:
         self.thumb_frame.update_idletasks()
         self.canvas.configure(scrollregion=self.canvas.bbox("all"))
         self.root.config(cursor="")
-        self.update_status(f"{len(self.pdf_files)} PDF(s) carregados. Total de páginas: {len(self.thumb_widgets)}")
+        self.update_status(f"{len(self.pdf_files)} PDF(s) carregados.")
 
     def on_thumb_click(self, event, index):
-        """Gerencia seleção com clique simples, Ctrl+click, Shift+click."""
         frame, path, page_num = self.thumb_widgets[index]
         key = (path, page_num)
-
-        shift = event.state & 0x0001  # Shift
-        ctrl = event.state & 0x0004   # Control
+        shift = event.state & 0x0001
+        ctrl = event.state & 0x0004
 
         if shift and self.last_clicked_index is not None:
-            # Range selection: do último índice clicado até o atual
             start = min(self.last_clicked_index, index)
             end = max(self.last_clicked_index, index)
             self.selected_pages.clear()
             for i in range(start, end + 1):
                 _, p, pn = self.thumb_widgets[i]
                 self.selected_pages.add((p, pn))
-            # Não altera last_clicked_index (âncora permanece)
         elif ctrl:
-            # Alterna seleção do item clicado
             if key in self.selected_pages:
                 self.selected_pages.remove(key)
             else:
                 self.selected_pages.add(key)
             self.last_clicked_index = index
         else:
-            # Seleção única: limpa tudo, seleciona apenas este
             self.selected_pages.clear()
             self.selected_pages.add(key)
             self.last_clicked_index = index
@@ -647,7 +634,6 @@ class PDFManager:
         self.update_all_borders()
 
     def update_all_borders(self):
-        """Atualiza a cor da borda de todas as miniaturas conforme seleção."""
         for frame, path, page_num in self.thumb_widgets:
             if (path, page_num) in self.selected_pages:
                 frame.configure(highlightbackground='red')
@@ -655,10 +641,8 @@ class PDFManager:
                 frame.configure(highlightbackground='#f0f0f0')
 
     def edit_page(self, path, page_num):
-        """Abre o editor da página em uma nova janela."""
         PDFPageEditor(self.root, path, page_num, on_save_callback=self.refresh_thumbnails)
 
-    # ----- Seleções em lote -----
     def select_all(self):
         self.selected_pages.clear()
         for _, path, page_num in self.thumb_widgets:
@@ -673,32 +657,27 @@ class PDFManager:
         self.update_all_borders()
 
     def get_selected_pages(self):
-        """Retorna lista de páginas selecionadas na ordem de exibição."""
         return [(path, pn) for _, path, pn in self.thumb_widgets
                 if (path, pn) in self.selected_pages]
 
     def get_all_pages_ordered(self):
         return [(path, pn) for _, path, pn in self.thumb_widgets]
 
-    # ----- Operações com PDFs (inalteradas) -----
     def merge_selected(self):
         pages = self.get_selected_pages()
         if not pages:
-            messagebox.showinfo("Aviso", "Nenhuma página selecionada.")
             return
         self._merge_pages(pages, "Salvar PDF unido (selecionadas)")
 
     def merge_all_pdfs(self):
         pages = self.get_all_pages_ordered()
         if not pages:
-            messagebox.showinfo("Aviso", "Nenhum PDF carregado.")
             return
         self._merge_pages(pages, "Salvar PDF unido (todos os arquivos)")
 
     def extract_selected(self):
         pages = self.get_selected_pages()
         if not pages:
-            messagebox.showinfo("Aviso", "Nenhuma página selecionada.")
             return
         self._merge_pages(pages, "Salvar páginas extraídas como PDF")
 
@@ -732,7 +711,6 @@ class PDFManager:
 
     def split_pdfs(self):
         if not self.pdf_files:
-            messagebox.showinfo("Aviso", "Nenhum PDF carregado.")
             return
         out_dir = filedialog.askdirectory(title="Pasta para salvar páginas divididas")
         if not out_dir:
@@ -757,7 +735,6 @@ class PDFManager:
         except Exception as e:
             self.root.config(cursor="")
             messagebox.showerror("Erro", f"Falha na divisão:\n{e}")
-
 
 def main():
     root = tk.Tk()
