@@ -1,3 +1,5 @@
+Comando par compialr o código: pyinstaller GeradorPDF_Perfeito.spec
+
 import sys
 import os
 import time
